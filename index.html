@@ -31960,6 +31960,18 @@ async function carregarPainelDoSupabase() {
   }
 }
 
+async function salvarRegistroNoSupabase(row) {
+  if (!painelSupabaseOnline || !supabaseClient) {
+    throw new Error('Supabase indisponível. Verifique a conexão com a internet.');
+  }
+  if (!row) throw new Error('Registro não encontrado para sincronização.');
+  const payload = supabaseLinha(row);
+  const { error } = await supabaseClient
+    .from(SUPABASE_TABLE)
+    .upsert(payload, { onConflict: 'codigo_anonimo' });
+  if (error) throw error;
+}
+
 async function excluirRegistroNoSupabasePorCodigo(code) {
   if (!painelSupabaseOnline || !code) return;
   const { error } = await supabaseClient
@@ -31979,6 +31991,33 @@ async function limparImportadosExcelNoSupabase() {
 }
 
 // Envolve as funções originais para sincronizar automaticamente com Supabase.
+// EDIÇÃO: salva o registro alterado imediatamente no Supabase.
+const originalSaveRecordEditSupabase = saveRecordEdit;
+saveRecordEdit = async function(code) {
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  const editBoxBefore = document.getElementById('editRecordBox');
+
+  // Executa todas as validações e alterações locais já existentes.
+  originalSaveRecordEditSupabase(code);
+
+  // Quando a validação falha, a caixa de edição continua aberta.
+  // Nesse caso, não envia nada ao banco.
+  const editBoxAfter = document.getElementById('editRecordBox');
+  if (!editBoxBefore || editBoxAfter) return;
+
+  const row = allData.find(x => String(x.codigo_anonimo || '').trim().toUpperCase() === normalizedCode);
+  if (!row) return;
+
+  try {
+    await salvarRegistroNoSupabase(row);
+    addValidationRow('ok', '✅ Edição salva e sincronizada com o Supabase.');
+  } catch (error) {
+    console.error('Erro Supabase ao salvar edição:', error);
+    addValidationRow('err', `❌ A edição foi aplicada na tela, mas não foi salva no Supabase: ${error.message || error}`);
+    alert('A edição foi aplicada na tela, mas houve erro ao salvar no banco. Não recarregue a página antes de corrigir a conexão e salvar novamente.');
+  }
+};
+
 const originalHandleFilesSupabase = handleFiles;
 handleFiles = async function(files) {
   await originalHandleFilesSupabase(files);
